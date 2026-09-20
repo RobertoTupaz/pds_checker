@@ -186,7 +186,7 @@ class PdsSpreadsheetReader
             surname: $this->text($sheet, 'D10'),
             firstName: $this->text($sheet, 'D11'),
             middleName: $this->text($sheet, 'D12'),
-            nameExtension: $this->text($sheet, 'N11'),
+            nameExtension: $this->nameExtension($sheet, ['L11', 'N11']),
             dateOfBirth: $this->date($sheet, 'D13'),
             placeOfBirth: $this->text($sheet, 'D15'),
             sex: $sex,
@@ -237,7 +237,7 @@ class PdsSpreadsheetReader
             surname: $spouseSurname,
             firstName: $this->text($sheet, 'D37'),
             middleName: $this->text($sheet, 'D38'),
-            nameExtension: $this->text($sheet, 'H37'),
+            nameExtension: $this->nameExtension($sheet, ['G37', 'H37']),
             occupation: $this->text($sheet, 'D39'),
             employerBusinessName: $this->text($sheet, 'D40'),
             businessAddress: $this->text($sheet, 'D41'),
@@ -276,7 +276,7 @@ class PdsSpreadsheetReader
                 surname: $this->text($sheet, "D{$fatherRow}"),
                 firstName: $this->text($sheet, 'D'.($fatherRow + 1)),
                 middleName: $this->text($sheet, 'D'.($fatherRow + 2)),
-                nameExtension: $this->text($sheet, 'H'.($fatherRow + 1)),
+                nameExtension: $this->nameExtension($sheet, ['G'.($fatherRow + 1), 'H'.($fatherRow + 1)]),
             ),
             mother: new ParentInfo(
                 surname: $this->text($sheet, "D{$motherRow}"),
@@ -595,6 +595,36 @@ class PdsSpreadsheetReader
             details: $this->textUnlessPlaceholder($sheet, $detailsCoord, $detailsPlaceholder),
             isAnswered: $isYes || $this->checkbox($sheet, $noCoord, 'no'),
         );
+    }
+
+    /**
+     * The name extension (Jr., Sr., III...) is typed into the same cell as its printed
+     * label, e.g. "NAME EXTENSION (JR., SR) JR." (the label and the applicant's entry
+     * are separate rich-text runs of one cell), and the blank form ships with "N/A"
+     * already in it. So the label is stripped and what remains is the entry; "N/A"
+     * or nothing left means there is no extension. Each coordinate is tried in turn.
+     *
+     * @param  array<int, string>  $coordinates
+     */
+    private function nameExtension(Worksheet $sheet, array $coordinates): ?string
+    {
+        foreach ($coordinates as $coordinate) {
+            $value = $this->text($sheet, $coordinate);
+
+            if ($value === null) {
+                continue;
+            }
+
+            $value = trim(preg_replace('/^\s*name\s+extension\s*\(\s*jr\.?\s*,\s*sr\.?\s*\)\s*/i', '', $value) ?? '');
+
+            if ($value === '' || in_array(mb_strtolower($value), ['n/a', 'na', 'n.a.', 'n.a', 'none', 'not applicable'], true)) {
+                continue;
+            }
+
+            return $value;
+        }
+
+        return null;
     }
 
     private function text(Worksheet $sheet, string $coordinate): ?string

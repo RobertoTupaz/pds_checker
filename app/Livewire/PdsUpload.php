@@ -67,6 +67,7 @@ class PdsUpload extends Component
                 $parsed->personalInformation->firstName,
                 $parsed->personalInformation->middleName,
                 $parsed->personalInformation->surname,
+                $parsed->personalInformation->nameExtension,
             ]))) ?: null;
 
             $this->hasParsed = true;

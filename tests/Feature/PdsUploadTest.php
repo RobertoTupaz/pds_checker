@@ -21,6 +21,7 @@ function buildFullyValidPds(): string
     $c1->setCellValue('D10', 'Reyes');
     $c1->setCellValue('D11', 'Ana');
     $c1->setCellValue('D12', 'Lopez');
+    $c1->setCellValue('L11', 'NAME EXTENSION (JR., SR) JR.');
     $c1->setCellValue('D13', '03/10/1995');
     $c1->setCellValue('D15', 'Cebu City');
     $c1->setCellValue('D16', true); // Male
@@ -134,7 +135,7 @@ it('downloads a certification document once the pds has no issues', function () 
     Livewire::test(PdsUpload::class)
         ->set('pdsFile', $file)
         ->call('parse')
-        ->assertSet('applicantFullName', 'Ana Lopez Reyes')
+        ->assertSet('applicantFullName', 'Ana Lopez Reyes JR.')
         ->call('downloadCertification')
         ->assertFileDownloaded('pds-certification-of-completeness.pdf');
 

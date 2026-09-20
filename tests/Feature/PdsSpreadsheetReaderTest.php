@@ -2,6 +2,7 @@
 
 use App\Services\Pds\Exceptions\InvalidPdsTemplateException;
 use App\Services\Pds\PdsSpreadsheetReader;
+use PhpOffice\PhpSpreadsheet\RichText\RichText;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
 
@@ -349,3 +350,52 @@ it('finds C3 sections by heading when Voluntary Work comes before Learning and D
         ->and($parsed->learningAndDevelopment->entries[0]->title)->toBe('ORA OHRA ORIENTATION')
         ->and($parsed->otherInformation->specialSkillsHobbies)->toBe(['DANCING']);
 });
+
+it('reads a name extension typed after the printed label in the same rich-text cell', function () {
+    $spreadsheet = new Spreadsheet;
+    $c1 = $spreadsheet->getActiveSheet();
+    $c1->setTitle('C1');
+    $c1->setCellValue('D10', 'Tupas');
+
+    $richText = new RichText;
+    $richText->createText('NAME EXTENSION (JR., SR) ');
+    $richText->createTextRun('JR.');
+    $c1->setCellValue('L11', $richText);
+
+    $c1->setCellValue('G37', 'NAME EXTENSION (JR., SR) N/A ');
+
+    $spreadsheet->createSheet()->setTitle('C2');
+    $spreadsheet->createSheet()->setTitle('C3');
+    $spreadsheet->createSheet()->setTitle('C4');
+
+    $path = tempnam(sys_get_temp_dir(), 'pds_test_').'.xlsx';
+    (new Xlsx($spreadsheet))->save($path);
+
+    $parsed = (new PdsSpreadsheetReader)->read($path);
+    unlink($path);
+
+    expect($parsed->personalInformation->nameExtension)->toBe('JR.');
+});
+
+it('treats an untouched or N/A name extension as none', function (string $cellText) {
+    $spreadsheet = new Spreadsheet;
+    $c1 = $spreadsheet->getActiveSheet();
+    $c1->setTitle('C1');
+    $c1->setCellValue('D10', 'Tupas');
+    $c1->setCellValue('L11', $cellText);
+    $spreadsheet->createSheet()->setTitle('C2');
+    $spreadsheet->createSheet()->setTitle('C3');
+    $spreadsheet->createSheet()->setTitle('C4');
+
+    $path = tempnam(sys_get_temp_dir(), 'pds_test_').'.xlsx';
+    (new Xlsx($spreadsheet))->save($path);
+
+    $parsed = (new PdsSpreadsheetReader)->read($path);
+    unlink($path);
+
+    expect($parsed->personalInformation->nameExtension)->toBeNull();
+})->with([
+    'shipped with N/A' => 'NAME EXTENSION (JR., SR) N/A ',
+    'label only' => 'NAME EXTENSION (JR., SR)',
+    'lowercase none' => 'NAME EXTENSION (JR., SR) none',
+]);
