@@ -2,112 +2,130 @@
 
 namespace App\Services\Pds;
 
+use Barryvdh\DomPDF\Facade\Pdf;
 use Carbon\CarbonInterface;
 use RuntimeException;
 use ZipArchive;
 
 /**
- * Builds the "Certification of Completeness" Word document from the office's own
- * template (public/template/cetification_template.docx), which supplies the
- * letterhead header and footer. The template's body is empty, so the certification
- * text is written into it.
+ * Builds the "Certification of Completeness" PDF. The letterhead (seal, office name
+ * lines, footer logos and contact details) is read from the office's Word template
+ * (public/template/cetification_template.docx), so updating that file updates the
+ * certification. A Word file can't be turned into a PDF without extra server
+ * software, so the certification page itself is rendered by dompdf.
  */
 class CertificationDocument
 {
-    public const CONTENT_TYPE = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+    public const CONTENT_TYPE = 'application/pdf';
 
     public function generate(string $applicantName, CarbonInterface $issuedAt): string
     {
+        return Pdf::loadView('pdf.certification', [
+            'letterhead' => $this->letterhead(),
+            'applicantName' => $applicantName,
+            'issuedAt' => $issuedAt,
+        ])->setPaper('a4')->output();
+    }
+
+    /**
+     * @return array{seal: string, headerLines: array<int, string>, footerLogos: array<int, string>, footerLines: array<int, string>}
+     */
+    public function letterhead(): array
+    {
         $template = public_path('template/cetification_template.docx');
-
-        if (! is_file($template)) {
-            throw new RuntimeException("Certification template not found at {$template}.");
-        }
-
-        $working = tempnam(sys_get_temp_dir(), 'cert_').'.docx';
-        copy($template, $working);
-
         $zip = new ZipArchive;
 
-        if ($zip->open($working) !== true) {
-            unlink($working);
-
-            throw new RuntimeException('The certification template could not be opened.');
+        if (! is_file($template) || $zip->open($template) !== true) {
+            throw new RuntimeException("Certification template not found or unreadable at {$template}.");
         }
 
-        $document = $zip->getFromName('word/document.xml');
+        try {
+            $header = $this->part($zip, 'word/header1.xml');
+            $footer = $this->part($zip, 'word/footer1.xml');
 
-        if ($document === false) {
+            $headerImages = $this->embeddedImages($zip, 'word/_rels/header1.xml.rels', $header);
+            $footerImages = $this->embeddedImages($zip, 'word/_rels/footer1.xml.rels', $footer);
+
+            return [
+                'seal' => $headerImages[0] ?? '',
+                'headerLines' => $this->paragraphTexts($header),
+                'footerLogos' => $footerImages,
+                // The footer's contact block is a text box that Word stores twice
+                // (modern + fallback copy); only the first copy is wanted.
+                'footerLines' => $this->paragraphTexts($this->firstTextBox($footer)),
+            ];
+        } finally {
             $zip->close();
-            unlink($working);
-
-            throw new RuntimeException('The certification template has no document body.');
         }
+    }
 
-        $zip->addFromString('word/document.xml', $this->insertBody($document, $applicantName, $issuedAt));
-        $zip->close();
+    private function part(ZipArchive $zip, string $name): string
+    {
+        $contents = $zip->getFromName($name);
 
-        $contents = (string) file_get_contents($working);
-        unlink($working);
+        if ($contents === false) {
+            throw new RuntimeException("The certification template is missing {$name}.");
+        }
 
         return $contents;
     }
 
-    private function insertBody(string $documentXml, string $applicantName, CarbonInterface $issuedAt): string
+    /**
+     * @return array<int, string> data URIs, in the order the images appear in the part
+     */
+    private function embeddedImages(ZipArchive $zip, string $relsName, string $partXml): array
     {
-        $body = implode('', [
-            $this->paragraph('CERTIFICATION OF COMPLETENESS', size: 32, bold: true, before: 720, after: 480),
-            $this->paragraph('This is to certify that the Personal Data Sheet (CS Form No. 212, Revised 2026) submitted by', after: 240),
-            $this->paragraph(mb_strtoupper($applicantName), size: 28, bold: true, underline: true, after: 240),
-            $this->paragraph(
-                'has been checked by PDS Checker and found to be completely and consistently filled out, based on the '
-                .'required-field, format, and logical-consistency checks performed on Sections I to VIII of the form '
-                .'(Personal Information, Family Background, Educational Background, Civil Service Eligibility, Work '
-                .'Experience, Voluntary Work, Learning and Development, and Other Information).',
-                align: 'both',
-                after: 360,
-            ),
-            $this->paragraph('Issued on '.$issuedAt->format('F j, Y').'.', after: 600),
-            $this->paragraph(
-                'This certification confirms that the entries are complete and internally consistent according to '
-                .'automated checks. It does not verify the truthfulness or accuracy of the information provided, which '
-                .'remains the sole responsibility of the person who accomplished the form.',
-                size: 18,
-                italic: true,
-                align: 'both',
-            ),
-        ]);
+        $rels = $zip->getFromName($relsName);
 
-        // The template ships one empty paragraph in its body; replace it, or failing
-        // that insert ahead of the section properties (which carry the header/footer).
-        $replaced = preg_replace('#<w:p\b[^>]*/>(?=<w:sectPr)#', $body, $documentXml, 1, $count);
-
-        if ($count === 1 && $replaced !== null) {
-            return $replaced;
+        if ($rels === false) {
+            return [];
         }
 
-        return str_replace('<w:sectPr', $body.'<w:sectPr', $documentXml);
+        preg_match_all('/<Relationship\b[^>]*\bId="(rId\d+)"[^>]*\bTarget="([^"]+)"/', $rels, $relMatches, PREG_SET_ORDER);
+        $targets = array_column($relMatches, 2, 1);
+
+        preg_match_all('/r:embed="(rId\d+)"/', $partXml, $embedMatches);
+
+        $images = [];
+
+        foreach (array_unique($embedMatches[1]) as $relationshipId) {
+            $bytes = isset($targets[$relationshipId]) ? $zip->getFromName('word/'.$targets[$relationshipId]) : false;
+
+            if ($bytes === false) {
+                continue;
+            }
+
+            $mime = str_ends_with(strtolower($targets[$relationshipId]), '.png') ? 'image/png' : 'image/jpeg';
+            $images[] = "data:{$mime};base64,".base64_encode($bytes);
+        }
+
+        return $images;
     }
 
-    private function paragraph(
-        string $text,
-        int $size = 24,
-        bool $bold = false,
-        bool $italic = false,
-        bool $underline = false,
-        string $align = 'center',
-        int $before = 0,
-        int $after = 160,
-    ): string {
-        $runProperties = ($bold ? '<w:b/>' : '')
-            .($italic ? '<w:i/>' : '')
-            .($underline ? '<w:u w:val="single"/>' : '')
-            ."<w:sz w:val=\"{$size}\"/><w:szCs w:val=\"{$size}\"/>";
+    private function firstTextBox(string $xml): string
+    {
+        return preg_match('#<w:txbxContent>(.*?)</w:txbxContent>#s', $xml, $match) === 1 ? $match[1] : '';
+    }
 
-        $escaped = htmlspecialchars($text, ENT_XML1 | ENT_QUOTES, 'UTF-8');
+    /**
+     * @return array<int, string> the text of each non-empty paragraph
+     */
+    private function paragraphTexts(string $xml): array
+    {
+        preg_match_all('#<w:p\b[^>]*>.*?</w:p>#s', $xml, $paragraphs);
 
-        return '<w:p><w:pPr>'
-            ."<w:spacing w:before=\"{$before}\" w:after=\"{$after}\"/><w:jc w:val=\"{$align}\"/>"
-            ."</w:pPr><w:r><w:rPr>{$runProperties}</w:rPr><w:t xml:space=\"preserve\">{$escaped}</w:t></w:r></w:p>";
+        $lines = [];
+
+        foreach ($paragraphs[0] as $paragraph) {
+            preg_match_all('#<w:t(?:\s[^>]*)?>([^<]*)</w:t>#', $paragraph, $runs);
+
+            $text = trim(preg_replace('/\s+/', ' ', html_entity_decode(implode('', $runs[1]), ENT_QUOTES | ENT_XML1, 'UTF-8')) ?? '');
+
+            if ($text !== '') {
+                $lines[] = $text;
+            }
+        }
+
+        return $lines;
     }
 }

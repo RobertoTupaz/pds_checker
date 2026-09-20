@@ -136,7 +136,7 @@ it('downloads a certification document once the pds has no issues', function () 
         ->call('parse')
         ->assertSet('applicantFullName', 'Ana Lopez Reyes')
         ->call('downloadCertification')
-        ->assertFileDownloaded('pds-certification-of-completeness.docx');
+        ->assertFileDownloaded('pds-certification-of-completeness.pdf');
 
     unlink($path);
 });

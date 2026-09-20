@@ -82,7 +82,7 @@ class PdsUpload extends Component
     /**
      * Livewire only recognizes a StreamedResponse or BinaryFileResponse as a file
      * download (see Livewire\Features\SupportFileDownloads); anything else would be
-     * JSON-encoded as ordinary action output and fail on the binary document bytes.
+     * JSON-encoded as ordinary action output and fail on the binary PDF bytes.
      */
     public function downloadCertification(CertificationDocument $certification): StreamedResponse
     {
@@ -92,7 +92,7 @@ class PdsUpload extends Component
 
         return response()->streamDownload(
             fn () => print ($contents),
-            'pds-certification-of-completeness.docx',
+            'pds-certification-of-completeness.pdf',
             ['Content-Type' => CertificationDocument::CONTENT_TYPE],
         );
     }
