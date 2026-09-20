@@ -2,11 +2,11 @@
 
 namespace App\Livewire;
 
+use App\Services\Pds\CertificationDocument;
 use App\Services\Pds\Data\ValidationIssue;
 use App\Services\Pds\Exceptions\InvalidPdsTemplateException;
 use App\Services\Pds\PdsSpreadsheetReader;
 use App\Services\Pds\PdsValidator;
-use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Contracts\View\View;
 use Livewire\Attributes\Title;
 use Livewire\Component;
@@ -80,25 +80,20 @@ class PdsUpload extends Component
     }
 
     /**
-     * Livewire only recognizes a StreamedResponse or BinaryFileResponse as a
-     * file download (see Livewire\Features\SupportFileDownloads); dompdf's
-     * own ->download() returns a plain Response, which Livewire would instead
-     * try to JSON-encode as ordinary action output and fail on the binary
-     * PDF bytes. Wrapping it in streamDownload() avoids that.
+     * Livewire only recognizes a StreamedResponse or BinaryFileResponse as a file
+     * download (see Livewire\Features\SupportFileDownloads); anything else would be
+     * JSON-encoded as ordinary action output and fail on the binary document bytes.
      */
-    public function downloadCertification(): StreamedResponse
+    public function downloadCertification(CertificationDocument $certification): StreamedResponse
     {
         abort_unless($this->hasParsed && $this->issues === [] && $this->applicantFullName !== null, 403);
 
-        $pdf = Pdf::loadView('pdf.certification', [
-            'applicantName' => $this->applicantFullName,
-            'generatedAt' => now(),
-        ]);
+        $contents = $certification->generate($this->applicantFullName, now());
 
         return response()->streamDownload(
-            fn () => print ($pdf->output()),
-            'pds-certification-of-completeness.pdf',
-            ['Content-Type' => 'application/pdf'],
+            fn () => print ($contents),
+            'pds-certification-of-completeness.docx',
+            ['Content-Type' => CertificationDocument::CONTENT_TYPE],
         );
     }
 

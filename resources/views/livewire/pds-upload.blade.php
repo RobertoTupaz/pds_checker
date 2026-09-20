@@ -49,8 +49,8 @@
                 <flux:text>{{ __('This PDS is complete and internally consistent. You can now generate a certification.') }}</flux:text>
 
                 <div>
-                    <flux:button wire:click="downloadCertification" variant="filled" color="green" icon="check-badge">
-                        {{ __('Complete') }}
+                    <flux:button wire:click="downloadCertification" variant="filled" color="green" icon="arrow-down-tray">
+                        {{ __('Download certification') }}
                     </flux:button>
                 </div>
             </flux:card>

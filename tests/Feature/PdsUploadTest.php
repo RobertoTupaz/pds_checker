@@ -70,7 +70,7 @@ it('parses an uploaded pds file and shows the issues it finds', function () {
         ->assertSee('File parsed successfully')
         ->assertSee('Secondary school is required')
         ->assertSee('Permanent Address')
-        ->assertDontSee('Complete');
+        ->assertDontSee('Download certification');
 
     unlink($path);
 });
@@ -94,7 +94,7 @@ it('shows a friendly error for a file that is not the CS Form No. 212 template',
 });
 
 /**
- * These tests cover the Complete button and certification download, not the
+ * These tests cover the Download certification button and the certification download, not the
  * validation rules themselves (see PdsValidatorTest), so the validator is
  * stubbed to find no issues rather than hand-building a spreadsheet that
  * satisfies every rule.
@@ -110,7 +110,7 @@ function stubValidatorWithNoIssues(): void
     });
 }
 
-it('shows a Complete button and no issues for a fully valid pds', function () {
+it('shows a Download certification button and no issues for a fully valid pds', function () {
     stubValidatorWithNoIssues();
     $path = buildFullyValidPds();
     $file = UploadedFile::fake()->createWithContent('pds.xlsx', file_get_contents($path));
@@ -121,12 +121,12 @@ it('shows a Complete button and no issues for a fully valid pds', function () {
         ->assertOk()
         ->assertSet('issues', [])
         ->assertSee('No issues found')
-        ->assertSee('Complete');
+        ->assertSee('Download certification');
 
     unlink($path);
 });
 
-it('downloads a certification pdf once the pds has no issues', function () {
+it('downloads a certification document once the pds has no issues', function () {
     stubValidatorWithNoIssues();
     $path = buildFullyValidPds();
     $file = UploadedFile::fake()->createWithContent('pds.xlsx', file_get_contents($path));
@@ -136,7 +136,7 @@ it('downloads a certification pdf once the pds has no issues', function () {
         ->call('parse')
         ->assertSet('applicantFullName', 'Ana Lopez Reyes')
         ->call('downloadCertification')
-        ->assertFileDownloaded('pds-certification-of-completeness.pdf');
+        ->assertFileDownloaded('pds-certification-of-completeness.docx');
 
     unlink($path);
 });
